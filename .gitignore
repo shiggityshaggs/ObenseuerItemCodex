@@ -12,6 +12,7 @@
 
 *.bat
 /Deprecated/
+/Redacted/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
