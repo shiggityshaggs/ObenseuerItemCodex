@@ -39,6 +39,9 @@ namespace ItemCodex.Utility
 
         void Open()
         {
+            if (GameController.instance != null && GameController.instance.keysDisabled)
+                return;
+
             Plugin.GUIComponent.enabled = true;
             StartCoroutine(ControlsEnabled(false));
         }

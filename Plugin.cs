@@ -1,9 +1,6 @@
 ﻿using BepInEx;
-using HarmonyLib;
 using ItemCodex.Utility;
 using System;
-using System.Reflection;
-using UnityEngine;
 
 namespace ItemCodex;
 
@@ -20,7 +17,5 @@ public class Plugin : BaseUnityPlugin
         GUIComponent.enabled = false;
 
         gameObject.AddComponent<InputHandler>();
-
-        Application.targetFrameRate = 30;
     }
 }

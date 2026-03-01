@@ -1,4 +1,5 @@
 ﻿using ItemCodex.Utility;
+using OS.Items;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,14 +15,14 @@ namespace ItemCodex
         Vector2 itemScrollPos;
         bool windowHover;
 
-        float minHeight = 500f;
-        float minWidth = 700f;
+        readonly float minHeight = 500f;
+        readonly float minWidth = 705f;
 
         const int delayForFrames = 3; // 1 to avoid null per cycle. 3 to avoid null per click.
         int framesSinceHover;
 
         IEnumerable<Item> Filtereditems;
-        readonly HashSet<string> excludeCategory = ["Liquid", "ItemGroup"];
+        readonly HashSet<string> excludeCategory = ["ItemGroup"];
         List<string> validCategories = [];
 
         IDisposable selectedCategoriesSub;
@@ -76,9 +77,52 @@ namespace ItemCodex
             // Final filtered items
             Filtereditems = ItemHandler.Items
                 .Where(item => item.Categories.All(validCategories.Contains))
+                .Where(item => !item.Categories.Contains("Liquid Container") || ItemMetaUtilities.GetMetaOfType<ItemLiquidData>(item.Meta) != null)
                 .Where(predicateToUse)
                 .Where(SelectedMatch)   // always enforce selected categories
                 .ToList();
+        }
+
+        void ItemClickedDispatcher(Item item)
+        {
+            if (item?.Categories?.Contains("Liquid") ?? false)
+            {
+                SelectedLiquid.OnNext(item);
+                return;
+            }
+
+            if (item?.Categories?.Contains("Liquid Container") ?? false)
+            {
+                liquidQuantity = 100;
+                SelectedLiquidContainer.OnNext(item);
+                return;
+            }
+
+            AddItem(item);
+        }
+
+        void OnLiquidSelected(Item liquidItem)
+        {
+            var container = SelectedLiquidContainer.Value;
+            if (container != null)
+            {
+                var meta = container.CloneMetaAndSetLiquid(liquidItem, container.Meta, 1, out float _, 0);
+            }
+        }
+
+        void OnLiquidContainerSelected(Item liquidContainer)
+        {
+            ItemLiquidData itemLiquidData = ItemMetaUtilities.GetMetaOfType<ItemLiquidData>(liquidContainer.Meta);
+            if (itemLiquidData != null)
+            {
+                itemLiquidData.SetToMaxAmount();
+
+                ItemQualityData itemQualityData = ItemMetaUtilities.GetMetaOfType<ItemQualityData>(itemLiquidData.liquidItemMeta);
+                if (itemQualityData != null)
+                {
+                    itemQualityData.quality = 2;
+                }
+            }
         }
 
         void Init()
@@ -96,7 +140,7 @@ namespace ItemCodex
                 .Subscribe(CategorySelectionChanged);
 
             itemButtonSub ??= ItemButton
-                .Subscribe(AddItem);
+                .Subscribe(ItemClickedDispatcher);
 
             //hoverItemSub ??= HoverItem
             //    .DistinctUntilChanged()
@@ -112,20 +156,80 @@ namespace ItemCodex
             };
         }
 
-        private void AddItem(Item item)
+        private void AddLiquidContainer(Item container, Item liquid, float quantity, float quality)
+        {
+            if (Inventory.instance == null)
+            {
+                Console.WriteLine("Inventory is null");
+                return;
+            }
+
+            if (container == null)
+            {
+                Console.WriteLine("Container is null");
+                return;
+            }
+
+            if (liquid == null)
+            {
+                Console.WriteLine("Liquid is null");
+                return; 
+            }
+
+            if (!container.Categories.Contains("Liquid Container"))
+            {
+                Console.WriteLine("Container missing category 'Liquid Container'");
+                return;
+            }
+
+            if (!liquid.Categories.Contains("Liquid"))
+            {
+                Console.WriteLine("Liquid missing category 'Liquid'");
+                return;
+            }
+
+            var meta = container.CloneMetaAndSetLiquid(liquid, container.Meta, quantity, out float _);
+
+            ItemLiquidData itemLiquidData = ItemMetaUtilities.GetMetaOfType<ItemLiquidData>(container.Meta);
+            if (itemLiquidData == null)
+            {
+                Console.WriteLine("ItemLiquidData is null");
+                return;
+            }
+
+            ItemQualityData itemQualityData = ItemMetaUtilities.GetMetaOfType<ItemQualityData>(itemLiquidData.liquidItemMeta);
+            if (itemQualityData == null)
+            {
+                Console.WriteLine("ItemQualityData is null");
+                //return;
+            }
+            itemQualityData?.quality = quality;
+
+            ItemOperations.AddItemsAndDropRemaining(item: container,
+                                        owner: -1,
+                                        slot: null,
+                                        meta: meta,
+                                        amount: 1,
+                                        stackAmount: 0);
+        }
+
+        private void AddItem(Item item, object[] meta = null)
         {
             if (item == null) return;
-            if (BackpackStorage.instance == null) return;
+            if (Inventory.instance == null) return;
+            if (item.Categories.Contains("Liquid")) return;
+            //if (item.Categories.Contains("Liquid Container")) return;
 
             int amount = (item.Stackable > 1) && (Event.current.button == 1) ? item.Stackable : 1;
 
             ItemOperations.AddItemsAndDropRemaining(item: item,
                                                     owner: -1,
                                                     slot: null,
-                                                    meta: item.Meta,
+                                                    meta: meta ?? item.Meta,
                                                     amount: amount,
                                                     stackAmount: 0);
         }
+
         void Release()
         {
             if (GUI.GetNameOfFocusedControl() == "Filter")
@@ -161,29 +265,156 @@ namespace ItemCodex
                 {
                     Items();
                 }
+
+                using (new GUILayout.VerticalScope(GUILayout.MinWidth(135)))
+                {
+                    LiquidInterface();
+                }
             }
 
-            using (new GUILayout.HorizontalScope())
-            {
-                Footer();
-            }
+            Footer();
 
             if (!GUI.changed) GUI.DragWindow();
         }
 
-        void Footer()
+        float liquidQuantity = 0;
+        float liquidQuality = 2;
+        float buttonSize = 128;
+
+        void LiquidInterface()
         {
-            string text = string.Empty;
-            if (HoverItem.Value != null)
+            var liquid = SelectedLiquid.Value;
+            var container = SelectedLiquidContainer.Value;
+
+            GUI.color = Color.white;
+
+            GUILayout.Label(string.Empty);
+
+            using (new GUILayout.VerticalScope(GUI.skin.box))
             {
-                text += "LMB: Add one";
-                if (HoverItem.Value.Stackable > 1) text += $", RMB: Add stack of {HoverItem.Value.Stackable}";
+                if (liquid == null)
+                {
+                    if (GUILayout.Button("Select liquid"))
+                    {
+                        SelectedCategories.Clear();
+                        SelectedCategories.Add("Liquid");
+                    }
+                }
+                else
+                {
+                    GUILayout.Label($"Liquid: {liquid.Title}");
+
+                    if (liquid.Appearance?.Sprite != null)
+                    {
+                        if (Components.SpriteButton(liquid.Appearance?.Sprite, buttonSize))
+                        {
+                            SelectedCategories.Clear();
+                            SelectedCategories.Add("Liquid");
+                        }
+                    }
+                    else
+                    {
+                        if (GUILayout.Button(Texture2D.redTexture, GUILayout.Width(buttonSize), GUILayout.Height(buttonSize)))
+                        {
+                            SelectedCategories.Clear();
+                            SelectedCategories.Add("Liquid");
+                        }
+                    }
+
+                    ItemQualityData itemQualityData = ItemMetaUtilities.GetMetaOfType<ItemQualityData>(liquid.Meta);
+                    if (itemQualityData != null)
+                    {
+                        GUILayout.Label($"Quality {liquidQuality} {ItemQualityData.GetQuality(liquidQuality)}");
+                        liquidQuality = (float)Math.Round(GUILayout.HorizontalSlider(liquidQuality, 0, 2), 1);
+                    }
+                    else
+                    {
+                        GUILayout.Label("No ItemQualityData");
+                    }
+                }
             }
 
-            //GUILayout.FlexibleSpace();
-            GUILayout.Space(170);
-            GUILayout.Label(text);
-            //GUILayout.FlexibleSpace();
+            using (new GUILayout.VerticalScope(GUI.skin.box))
+            {
+                if (container == null)
+                {
+                    if (GUILayout.Button("Select container"))
+                    {
+                        SelectedCategories.Clear();
+                        SelectedCategories.Add("Liquid Container");
+                    }
+                }
+                else
+                {
+                    GUILayout.Label($"Container: {container.Title}");
+
+                    if (container.Appearance?.Sprite != null)
+                    {
+                        if (Components.SpriteButton(container.Appearance?.Sprite, buttonSize))
+                        {
+                            SelectedCategories.Clear();
+                            SelectedCategories.Add("Liquid Container");
+                        }
+                    }
+                    else
+                    {
+                        if (GUILayout.Button(Texture2D.redTexture, GUILayout.Width(buttonSize), GUILayout.Height(buttonSize)))
+                        {
+                            SelectedCategories.Clear();
+                            SelectedCategories.Add("Liquid Container");
+                        }
+                    }
+
+                    ItemLiquidData itemLiquidData = ItemMetaUtilities.GetMetaOfType<ItemLiquidData>(container.Meta);
+                    if (itemLiquidData != null)
+                    {
+                        if (liquidQuantity > itemLiquidData.liquidMaxAmount) liquidQuantity = itemLiquidData.liquidMaxAmount;
+                        GUILayout.Label($"Quantity {liquidQuantity}/{itemLiquidData.liquidMaxAmount}L");
+                        liquidQuantity = (float)Math.Round(GUILayout.HorizontalSlider(liquidQuantity, 0, itemLiquidData.liquidMaxAmount), 1);
+
+                        if (liquid != null && liquidQuantity > 0)
+                        {
+                            if (GUILayout.Button("Give container"))
+                                AddLiquidContainer(container, liquid, liquidQuantity, liquidQuality);
+                        }
+                        else
+                        {
+                            GUILayout.Label("No liquid");
+                            if (GUILayout.Button("Give empty"))
+                                AddItem(container);
+                        }
+                    }
+                    else
+                    {
+                        GUILayout.Label("No ItemLiquidData");
+                        if (GUILayout.Button("Give empty"))
+                            AddItem(container);
+                    }
+                }
+            }
+        }
+
+        void Footer()
+        {
+            using (new GUILayout.HorizontalScope())
+            {
+                string text = string.Empty;
+                if (HoverItem.Value != null)
+                {
+                    if (HoverItem.Value.Categories.Contains("Liquid"))
+                        text = "LMB: Set liquid";
+                    else if (HoverItem.Value.Categories.Contains("Liquid Container"))
+                        text = "LMB: Set liquid container";
+                    else
+                    {
+                        text += "LMB: Add one";
+                        if (HoverItem.Value.Stackable > 1) text += $", RMB: Add stack of {HoverItem.Value.Stackable}";
+                    }
+                }
+
+                GUILayout.Space(170);
+                GUILayout.Label(text);
+            }
         }
 
         void FilterBox()
@@ -267,10 +498,12 @@ namespace ItemCodex
                 else
                 {
                     GUILayout.Label(string.Empty);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label(string.Empty);
                 }
             }
 
-            using (var scope = new GUILayout.ScrollViewScope(itemScrollPos, GUILayout.MinWidth(minWidth)))
+            using (var scope = new GUILayout.ScrollViewScope(itemScrollPos, GUILayout.Width(minWidth)))
             {
                 itemScrollPos = scope.scrollPosition;
 

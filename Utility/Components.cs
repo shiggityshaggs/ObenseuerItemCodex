@@ -2,11 +2,12 @@
 
 namespace ItemCodex.Utility
 {
-    internal class Components
+    internal static class Components
     {
         internal static bool SpriteButton(Sprite sprite, float size)
         {
-            if (sprite == null) return false;
+            if (sprite == null)
+                return GUILayout.Button(Texture2D.redTexture, GUILayout.Width(size), GUILayout.Height(size));
 
             var tex = sprite.texture;
 

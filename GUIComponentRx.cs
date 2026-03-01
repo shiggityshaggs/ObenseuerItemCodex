@@ -9,5 +9,8 @@ namespace ItemCodex
         readonly BehaviorSubject<Item> HoverItem = new(null);
         readonly Subject<Item> ItemButton = new();
         readonly BehaviorSubject<string> TextFilter = new(string.Empty);
+        
+        readonly BehaviorSubject<Item> SelectedLiquid = new(null);
+        readonly BehaviorSubject<Item> SelectedLiquidContainer = new(null);
     }
 }
