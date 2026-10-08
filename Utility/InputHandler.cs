@@ -34,7 +34,15 @@ namespace ItemCodex.Utility
             if (enable)
                 GameController.instance.ControlsEnabled(this.gameObject);
             else
-                GameController.instance.ControlsDisabled(gameObject: this.gameObject, ShowCursor: true);
+                GameController.instance.ControlsDisabled(gameObject: this.gameObject,
+                                                         ShowCursor: true,
+                                                         disableKeys: true,
+                                                         writeLock: true,
+                                                         lockedFirsperson: false,
+                                                         firstpersonSoftLock: false,
+                                                         softLockTarget: null,
+                                                         disableCamera: true,
+                                                         disableMovement: true);
         }
 
         void Open()
